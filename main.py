@@ -1,70 +1,98 @@
 import os
 import logging
+import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-import google.generativeai as genai
 
-# --- CONFIG ---
-# Ye values Render ke Environment Variables se aayengi
-TOKEN = os.environ.get('TELEGRAM_TOKEN')
-AI_KEY = os.environ.get('GEMINI_API_KEY')
+# --- LOGGING SETUP ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# Gemini Setup
-genai.configure(api_key=AI_KEY)
-# Latest aur sabse fast model
+# --- CONFIGURATION ---
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+# Model initialization
+genai.configure(api_key=GEMINI_API_KEY)
+# Corrected model string to fix 404 error
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+# --- HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a greeting and language selection buttons."""
     keyboard = [
-        [InlineKeyboardButton("Hindi (देवनागरी) 🇮🇳", callback_data='l_hi')],
-        [InlineKeyboardButton("English 🇺🇸", callback_data='l_en')]
+        [InlineKeyboardButton("Hindi (देवनागरी) 🇮🇳", callback_data='lang_hi')],
+        [InlineKeyboardButton("English 🇺🇸", callback_data='lang_en')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Vichar AI mein aapka swagat hai! Bhasha chunein:", reply_markup=reply_markup)
+    
+    welcome_text = (
+        "Welcome to Vichar AI! Please select your language.\n\n"
+        "Vichar AI में आपका स्वागत है! कृपया अपनी भाषा चुनें:"
+    )
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-async def handle_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Processes button presses for language and topics."""
     query = update.callback_query
     await query.answer()
-    
-    if query.data.startswith('l_'):
-        context.user_data['lang'] = 'hindi' if query.data == 'l_hi' else 'english'
-        btns = [
-            [InlineKeyboardButton("Science 🧪", callback_data='t_sci')],
-            [InlineKeyboardButton("Politics ⚖️", callback_data='t_pol')],
-            [InlineKeyboardButton("Philosophy 🧘", callback_data='t_phi')]
-        ]
-        await query.edit_message_text("Topic chunein:", reply_markup=InlineKeyboardMarkup(btns))
-    
-    elif query.data.startswith('t_'):
-        topic = query.data.split('_')[1]
-        user_lang = context.user_data.get('lang', 'hindi')
-        
-        # Devanagari Instructions
-        if user_lang == 'hindi':
-            lang_instruction = "Write strictly in Hindi language using Devanagari script (हिंदी लिपि). Do not use English alphabets."
-        else:
-            lang_instruction = "Write in English."
+    data = query.data
 
-        prompt = f"{lang_instruction} Give a deep and rare {topic} fact. Keep it engaging."
-        await query.edit_message_text("🤔 AI Vichar kar raha hai...")
+    # Language selection logic
+    if data.startswith('lang_'):
+        selected_lang = 'hindi' if data == 'lang_hi' else 'english'
+        context.user_data['language'] = selected_lang
+        
+        keyboard = [
+            [InlineKeyboardButton("Science 🧪", callback_data='topic_sci')],
+            [InlineKeyboardButton("Politics ⚖️", callback_data='topic_pol')],
+            [InlineKeyboardButton("Philosophy 🧘", callback_data='topic_phi')]
+        ]
+        
+        prompt_text = "Select a topic:" if selected_lang == 'english' else "एक विषय चुनें:"
+        await query.edit_message_text(prompt_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # Topic selection logic
+    elif data.startswith('topic_'):
+        topic_map = {'topic_sci': 'Science', 'topic_pol': 'Politics', 'topic_phi': 'Philosophy'}
+        topic_name = topic_map.get(data)
+        user_lang = context.user_data.get('language', 'hindi')
+
+        # Constructing the AI Prompt based on language choice
+        if user_lang == 'hindi':
+            instruction = "Provide a rare and interesting fact. WRITE ONLY IN HINDI USING DEVANAGARI SCRIPT. NO ENGLISH LETTERS."
+        else:
+            instruction = "Provide a rare and interesting fact. WRITE ONLY IN ENGLISH."
+
+        full_prompt = f"{instruction}\nTopic: {topic_name}\nFact:"
+        
+        waiting_text = "🤔 AI is thinking..." if user_lang == 'english' else "🤔 AI विचार कर रहा है..."
+        await query.edit_message_text(waiting_text)
 
         try:
-            # AI se response mangna
-            response = model.generate_content(prompt)
-            await query.edit_message_text(text=f"✨ **Vichar** ✨\n\n{response.text}", parse_mode='Markdown')
+            response = model.generate_content(full_prompt)
+            result_header = "✨ **Vichar (Fact)** ✨" if user_lang == 'english' else "✨ **विचार (तथ्य)** ✨"
+            await query.edit_message_text(f"{result_header}\n\n{response.text}", parse_mode='Markdown')
         except Exception as e:
-            # Bot ab aapko asli error message dikhayega
-            await query.edit_message_text(text=f"❌ ASLI ERROR: {str(e)}")
+            logger.error(f"AI Connection Error: {e}")
+            await query.edit_message_text(f"❌ ERROR: {str(e)}")
+
+# --- MAIN EXECUTION ---
 
 if __name__ == '__main__':
-    if not TOKEN or not AI_KEY:
-        print("Error: TOKEN ya API_KEY nahi mila! Check Environment Variables.")
+    if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+        logger.critical("Missing Environment Variables! Check Render Settings.")
     else:
-        app = Application.builder().token(TOKEN).build()
-        app.add_handler(CommandHandler('start', start))
-        app.add_handler(CallbackQueryHandler(handle_interaction))
-        print("Bot is starting...")
-        app.run_polling()
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        
+        # Adding Handlers
+        application.add_handler(CommandHandler('start', start))
+        application.add_handler(CallbackQueryHandler(handle_callback))
+        
+        logger.info("Bot is running...")
+        application.run_polling()
 
