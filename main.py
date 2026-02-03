@@ -12,14 +12,14 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
-# Initialize Gemini with the correct model string
+# Initialize Gemini AI - Using correct model string to fix 404
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- HANDLERS ---
+# --- BOT HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Initial language selection."""
+    """Entry point for the bot. Sends language options."""
     keyboard = [
         [InlineKeyboardButton("Hindi (देवनागरी) 🇮🇳", callback_data='lang_hi')],
         [InlineKeyboardButton("English 🇺🇸", callback_data='lang_en')]
@@ -28,12 +28,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose your language / अपनी भाषा चुनें:", reply_markup=reply_markup)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles all button interactions."""
+    """Handles button interactions for language and topic selection."""
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    # Handle Language Selection
+    # User selects language
     if data.startswith('lang_'):
         user_lang = 'hindi' if data == 'lang_hi' else 'english'
         context.user_data['language'] = user_lang
@@ -46,14 +46,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "Select a topic:" if user_lang == 'english' else "एक विषय चुनें:"
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # Handle Topic Selection
+    # User selects topic
     elif data.startswith('topic_'):
         topic_map = {'topic_sci': 'Science', 'topic_pol': 'Politics', 'topic_phi': 'Philosophy'}
         topic_name = topic_map.get(data)
         user_lang = context.user_data.get('language', 'hindi')
 
-        # Language-specific prompting
+        # Language Prompting Logic
         if user_lang == 'hindi':
+            # Strict instruction for Devanagari script
             prompt = f"Give a rare fact about {topic_name}. WRITE ONLY IN HINDI USING DEVANAGARI SCRIPT. NO ENGLISH ALPHABETS."
             wait_msg = "🤔 AI विचार कर रहा है..."
         else:
@@ -67,12 +68,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             header = "✨ **Vichar (Fact)** ✨" if user_lang == 'english' else "✨ **विचार (तथ्य)** ✨"
             await query.edit_message_text(f"{header}\n\n{response.text}", parse_mode='Markdown')
         except Exception as e:
-            # Detailed error reporting
+            # Displays the actual error if connection fails
             await query.edit_message_text(f"❌ ASLI ERROR: {str(e)}")
 
 if __name__ == '__main__':
+    # Build the Application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Add Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(handle_callback))
-    application.run_polling()
-
+    
+    # Run Polling
+    application.run_polling()  
