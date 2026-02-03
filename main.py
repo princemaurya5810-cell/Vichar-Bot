@@ -6,78 +6,56 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION ---
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+# --- CONFIG ---
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+API_KEY = os.environ.get('GEMINI_API_KEY')
 
-# Initialize Gemini AI - Using correct model string to fix 404
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure AI
+genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- BOT HANDLERS ---
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Entry point for the bot. Sends language options."""
     keyboard = [
         [InlineKeyboardButton("Hindi (देवनागरी) 🇮🇳", callback_data='lang_hi')],
         [InlineKeyboardButton("English 🇺🇸", callback_data='lang_en')]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Choose your language / अपनी भाषा चुनें:", reply_markup=reply_markup)
+    await update.message.reply_text("Choose Language / भाषा चुनें:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles button interactions for language and topic selection."""
     query = update.callback_query
     await query.answer()
-    data = query.data
+    
+    if query.data.startswith('lang_'):
+        lang = 'hi' if query.data == 'lang_hi' else 'en'
+        context.user_data['l'] = lang
+        btns = [[InlineKeyboardButton("Science Fact 🧪", callback_data='get_fact')]]
+        text = "विषय चुनें:" if lang == 'hi' else "Select Topic:"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns))
 
-    # User selects language
-    if data.startswith('lang_'):
-        user_lang = 'hindi' if data == 'lang_hi' else 'english'
-        context.user_data['language'] = user_lang
+    elif query.data == 'get_fact':
+        user_lang = context.user_data.get('l', 'hi')
         
-        keyboard = [
-            [InlineKeyboardButton("Science 🧪", callback_data='topic_sci')],
-            [InlineKeyboardButton("Politics ⚖️", callback_data='topic_pol')],
-            [InlineKeyboardButton("Philosophy 🧘", callback_data='topic_phi')]
-        ]
-        text = "Select a topic:" if user_lang == 'english' else "एक विषय चुनें:"
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    # User selects topic
-    elif data.startswith('topic_'):
-        topic_map = {'topic_sci': 'Science', 'topic_pol': 'Politics', 'topic_phi': 'Philosophy'}
-        topic_name = topic_map.get(data)
-        user_lang = context.user_data.get('language', 'hindi')
-
-        # Language Prompting Logic
-        if user_lang == 'hindi':
-            # Strict instruction for Devanagari script
-            prompt = f"Give a rare fact about {topic_name}. WRITE ONLY IN HINDI USING DEVANAGARI SCRIPT. NO ENGLISH ALPHABETS."
-            wait_msg = "🤔 AI विचार कर रहा है..."
+        # Explicit Prompt for Devanagari
+        if user_lang == 'hi':
+            prompt = "Give a rare science fact. WRITE ONLY IN HINDI DEVANAGARI SCRIPT. NO ENGLISH LETTERS."
+            waiting = "🤔 AI विचार कर रहा है..."
         else:
-            prompt = f"Give a rare fact about {topic_name}. WRITE ONLY IN ENGLISH."
-            wait_msg = "🤔 AI is thinking..."
+            prompt = "Give a rare science fact in English."
+            waiting = "🤔 AI is thinking..."
 
-        await query.edit_message_text(wait_msg)
+        await query.edit_message_text(waiting)
 
         try:
             response = model.generate_content(prompt)
-            header = "✨ **Vichar (Fact)** ✨" if user_lang == 'english' else "✨ **विचार (तथ्य)** ✨"
-            await query.edit_message_text(f"{header}\n\n{response.text}", parse_mode='Markdown')
+            await query.edit_message_text(response.text)
         except Exception as e:
-            # Displays the actual error if connection fails
-            await query.edit_message_text(f"❌ ASLI ERROR: {str(e)}")
+            # Ye line bata degi ki abhi bhi error kyun hai
+            await query.edit_message_text(f"❌ ERROR: {str(e)}")
 
 if __name__ == '__main__':
-    # Build the Application
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.run_polling()
     
-    # Add Handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    
-    # Run Polling
-    application.run_polling()  
