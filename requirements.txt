@@ -1,1 +1,4 @@
-gunicorn
+python-telegram-bot
+google-generativeai
+apscheduler
+
