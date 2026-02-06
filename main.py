@@ -12,31 +12,26 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Get API keys from Environment Variables (Render/System)
+# Get API keys from Environment Variables
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 API_KEY = os.environ.get('GEMINI_API_KEY')
 
 # --- 2. GEMINI AI SETUP ---
 genai.configure(api_key=API_KEY)
 
-# Setting up the model
-# Using try-except block to fallback to 'gemini-pro' if 'flash' fails
-try:
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except Exception as e:
-    logging.warning(f"Flash model failed, switching to Pro. Error: {e}")
-    model = genai.GenerativeModel('gemini-pro')
+# ✅ FIX: Humne model badal kar 'gemini-pro' kar diya hai.
+# Ye purana model hai lekin ye hamesha chalta hai aur error nahi deta.
+model = genai.GenerativeModel('gemini-pro')
 
-# --- 3. FLASK SERVER (Required for Render) ---
-# This dummy server keeps the Render service alive by listening on a port.
+# --- 3. FLASK SERVER (Render ke liye zaroori) ---
+# Ye dummy server hai taaki Render app ko band na kare.
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    return "Bot is Alive and Running! ✅", 200
+    return "Bot is Alive! (Running on gemini-pro) ✅", 200
 
 def run_web_server():
-    # Render automatically assigns a PORT. Default to 5000 if not found.
     port = int(os.environ.get('PORT', 5000))
     app_flask.run(host='0.0.0.0', port=port)
 
@@ -54,37 +49,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles button clicks (Language selection & Fact generation)."""
+    """Handles button clicks."""
     query = update.callback_query
     await query.answer()
     
-    # CASE 1: User selected a language
+    # CASE 1: Language Selection
     if query.data.startswith('lang_'):
         lang = 'hi' if query.data == 'lang_hi' else 'en'
-        
-        # Save user preference in context
         context.user_data['l'] = lang
         
-        # Show the "Get Fact" button in the selected language
         btns = [[InlineKeyboardButton("Science Fact 🧪", callback_data='get_fact')]]
         text = "विषय चुनें:" if lang == 'hi' else "Select Topic:"
         
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns))
 
-    # CASE 2: User clicked "Science Fact"
+    # CASE 2: Fact Generation
     elif query.data == 'get_fact':
-        # Retrieve the saved language (default to Hindi if missing)
         user_lang = context.user_data.get('l', 'hi')
         
-        # Set prompt based on language
+        # Prompt Logic
         if user_lang == 'hi':
-            prompt = "Give a rare science fact. WRITE ONLY IN HINDI DEVANAGARI SCRIPT. NO ENGLISH LETTERS."
+            prompt = "Give a rare science fact. WRITE ONLY IN HINDI DEVANAGARI SCRIPT."
             waiting_text = "🤔 AI विचार कर रहा है..."
         else:
             prompt = "Give a rare science fact in English."
             waiting_text = "🤔 AI is thinking..."
 
-        # Show waiting text first
+        # Show waiting message
         try:
             await query.edit_message_text(waiting_text)
             
@@ -94,26 +85,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if response.text:
                 await query.edit_message_text(response.text)
             else:
-                await query.edit_message_text("❌ Received empty response from AI.")
+                await query.edit_message_text("❌ Empty response.")
                 
         except Exception as e:
-            # Display error to user for debugging
             await query.edit_message_text(f"❌ ERROR: {str(e)}")
 
 # --- 5. MAIN EXECUTION ---
 if __name__ == '__main__':
-    # Step A: Start the Flask Web Server in a separate thread
-    # This prevents Render from killing the bot.
+    # Step A: Start Flask Server (Background me)
     t = threading.Thread(target=run_web_server)
     t.start()
 
-    # Step B: Start the Telegram Bot
-    print("Bot is starting polling...")
+    # Step B: Start Telegram Bot
+    print("Bot is starting polling with gemini-pro...")
     app = Application.builder().token(TOKEN).build()
     
-    # Add Handlers
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     
-    # Start Polling (Blocking call)
     app.run_polling()
